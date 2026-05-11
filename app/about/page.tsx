@@ -27,7 +27,7 @@ export default function AboutPage() {
 
         <div className="flex gap-6 pt-2">
           <a
-            href="https://linkedin.com/in/viviwei"
+            href="https://linkedin.com/in/vivi-wei-zw"
             target="_blank"
             rel="noopener noreferrer"
             className="text-accent font-bold text-sm hover:underline"
@@ -35,7 +35,7 @@ export default function AboutPage() {
             → LinkedIn
           </a>
           <a
-            href="https://github.com/viviwei"
+            href="https://github.com/vvbae"
             target="_blank"
             rel="noopener noreferrer"
             className="text-accent font-bold text-sm hover:underline"

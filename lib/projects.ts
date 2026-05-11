@@ -18,7 +18,7 @@ export const projects: Project[] = [
     videoYouTubeId: null,
     localVideo:     '/videos/success.mp4',
     blogSlug:       'decomposition-learning',
-    github:         'https://github.com/viviwei/decomp-learn',
+    github:         'https://github.com/vvbae/decomp-learn',
   },
   {
     slug:           'so101-imitation',

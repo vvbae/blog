@@ -38,7 +38,7 @@ export default function Sidebar() {
       </div>
       <div className="flex gap-3">
         <a
-          href="https://github.com/viviwei"
+          href="https://github.com/vvbae"
           target="_blank"
           rel="noopener noreferrer"
           className="text-[10px] text-muted hover:text-fg transition-colors"
@@ -46,7 +46,7 @@ export default function Sidebar() {
           gh
         </a>
         <a
-          href="https://linkedin.com/in/viviwei"
+          href="https://linkedin.com/in/vivi-wei-zw"
           target="_blank"
           rel="noopener noreferrer"
           className="text-[10px] text-muted hover:text-fg transition-colors"
