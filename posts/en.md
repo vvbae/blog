@@ -60,16 +60,6 @@ I collected 996 expert demonstrations using ManiSkill3's built-in motion planner
 
 *No train/test split.* I trained on all 996 demos and evaluated on the same distribution. That's not a meaningful evaluation — you can't tell if you're measuring generalization or memorization. A colleague pointed this out and I fixed it: 800 demos for training, 200 held-out test demos (the last 200 in the dataset, which have different random seeds). All numbers in this post use the held-out test set.
 
-**One more thing that happened: I accidentally made training 196x slower than it needed to be.**
-
-Partway through a training run, I noticed my fan was screaming. I asked Claude to help diagnose it. The first suggestion: DataLoader workers — 4 processes pegged at ~100% CPU each — probably decoding video frames with torchcodec. This sounded plausible. It was completely wrong. The dataset is entirely state-based: 43-dimensional numerical observations stored in parquet files. No images, no video, no torchcodec involved whatsoever.
-
-So we dug deeper. The actual bottleneck was in LeRobot's `__getitem__`. It was calling `hf_dataset.select(indices)[key]` — which reconstructs an Arrow table from scratch on every single call, about 8.5ms per sample. The fix was one line: `hf_dataset[indices][key]`, which does direct indexing and takes ~0.05ms. That's the same result, 170x faster per call.
-
-After that change: GPU utilization went from 0% to 95%, and estimated training time dropped from ~89 hours to ~2.9 hours.
-
-I then looked into submitting a PR to LeRobot. When I checked their latest main branch, the code had already been refactored to avoid `.select()` entirely. So someone else had found it too.
-
 ---
 
 ## The Numbers
@@ -201,3 +191,17 @@ The experiment failed on its primary claim. The contact-only policy didn't beat 
 If you're trying something similar: run the failure visualization early, set your test split before the first training run, and expect the data distribution problem to be harder than the model problem.
 
 Code and all experiment logs are on [GitHub](https://github.com/viviwei/decomp-learn).
+
+---
+
+## Bonus: A Debugging Detour
+
+**One more thing that happened: I accidentally made training 196x slower than it needed to be.**
+
+Partway through a training run, I noticed my fan was screaming. I asked Claude to help diagnose it. The first suggestion: DataLoader workers — 4 processes pegged at ~100% CPU each — probably decoding video frames with torchcodec. This sounded plausible. It was completely wrong. The dataset is entirely state-based: 43-dimensional numerical observations stored in parquet files. No images, no video, no torchcodec involved whatsoever.
+
+So we dug deeper. The actual bottleneck was in LeRobot's `__getitem__`. It was calling `hf_dataset.select(indices)[key]` — which reconstructs an Arrow table from scratch on every single call, about 8.5ms per sample. The fix was one line: `hf_dataset[indices][key]`, which does direct indexing and takes ~0.05ms. That's the same result, 170x faster per call.
+
+After that change: GPU utilization went from 0% to 95%, and estimated training time dropped from ~89 hours to ~2.9 hours.
+
+I then looked into submitting a PR to LeRobot. When I checked their latest main branch, the code had already been refactored to avoid `.select()` entirely. So someone else had found it too.
