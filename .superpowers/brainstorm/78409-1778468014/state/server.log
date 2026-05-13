@@ -1,9 +1,0 @@
-{"type":"server-started","port":51654,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:51654","screen_dir":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content","state_dir":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/state"}
-{"type":"screen-added","file":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content/visual-style.html"}
-{"source":"user-event","type":"click","text":"SDE → Robotics ML\n        Buildingembodied AIsystems.\n        \n        \n          PROJECTS\n          BLOG\n        \n      \n    \n    \n      B — Light & Bold ✦ recommended\n      Off-white, near-black type, one hot accent (red-orange or electric blue). Heavy geometric headers. Editorial confidence. Looks expensive, loads fast.","choice":"light-bold","id":null,"timestamp":1778468250939}
-{"type":"screen-added","file":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content/accent-color.html"}
-{"type":"screen-added","file":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content/accent-green.html"}
-{"type":"screen-added","file":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content/homepage-layout.html"}
-{"type":"screen-added","file":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content/project-cards.html"}
-{"type":"screen-added","file":"/home/viviwei/viviwei/blog/.superpowers/brainstorm/78409-1778468014/content/waiting-1.html"}
-{"type":"server-stopped","reason":"idle timeout"}

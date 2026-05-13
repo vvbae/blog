@@ -1,7 +1,0 @@
-{
-  "ckpt": "outputs/train/baseline_delta_996/checkpoints/100000/pretrained_model",
-  "success_rate": 0.16,
-  "n_success": 16,
-  "n_episodes": 100,
-  "timestamp": "2026-04-26T15:51:03.427161"
-}

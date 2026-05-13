@@ -34,3 +34,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# accidental research-repo cruft (do not let this happen again)
+/.superpowers/
+/code_snapshots/
+/context/
+/docs/
+/figures/
+/posts/
+/results/
+*.docx
+.claude/
