@@ -1,0 +1,124 @@
+---
+title: "First Time Training a Real Robot: SO-101, Candy, and a Box"
+date: "2026-05-12"
+summary: "An SDE's first attempt at embodied AI. Bought an SO-101, teleoped 50 episodes of candy-to-box, trained an ACT policy, and watched it not quite work."
+tags: ["SO-101", "LeRobot", "ACT", "Imitation Learning", "First attempt"]
+---
+
+*May 2026 · viviwei*
+
+---
+
+I'm a software engineer who'd been reading embodied AI papers from the outside for a while. At some point that stopped being enough. I wanted to feel what it's like to actually own the loop end-to-end — buy a real arm, teleop it, record data, train a policy, and watch the thing move on its own.
+
+So I did. This is a first-attempt writeup. The policy didn't really work. The point of the post isn't the result — it's everything between "I bought a robot" and "I have a checkpoint."
+
+---
+
+## The Kit
+
+I bought an [SO-101](https://huggingface.co/docs/lerobot/so101) from [wowrobo](https://shop.wowrobo.com/products/so-arm101-diy-kit-assembled-version-1?variant=46588641607897) — the assembled DIY kit. Small outfit. One follower arm, one leader arm, one wrist camera. The leader-follower setup is the standard LeRobot pattern: you backdrive the leader arm by hand, and the follower mirrors your motion in real time. That's how you collect demonstrations.
+
+![SO-101 on the desk — leader, follower, wrist camera](/figures/so101-kit.jpg)
+
+A few honest observations as a first-time hardware buyer:
+
+- The hardware is approachable. It's plastic, it's printed, the joints aren't perfectly stiff. That's fine — it's a research/learning platform, not a production arm.
+- "One follower, one leader, one wrist cam" is the minimum viable kit for imitation learning on a single arm. No external camera, no bimanual setup. I wanted to keep the variable count low for my first run.
+- Wowrobo is small. Documentation existed but wasn't exhaustive — most of my reference material came from the LeRobot docs and the Hugging Face SO-101 tutorial, with the hardware as the thing I had to make match.
+
+---
+
+## Calibration
+
+This is where the gap between "I read the docs" and "I am running the thing" first showed up.
+
+Calibration on SO-101 means setting each joint to a known reference position and recording the encoder reading there, so the software can map raw motor counts to meaningful angles. There's a calibration script in LeRobot that walks you through it joint by joint.
+
+What I didn't expect:
+
+- **The leader and follower calibrate separately, and they have to agree.** If you calibrate the leader's elbow at 90° and the follower's elbow at 91°, you get a constant offset baked into every demo. Small offsets compound when the arm reaches further from base.
+- **The reference position is doing more work than it looks like.** The instruction is "set the arm to this pose." But "this pose" depends on you eyeballing it against a printed reference, and a few degrees of slop in how you position the gripper translates directly into a few degrees of slop in every demo you record afterward.
+- **Re-calibrating mid-session is a trap.** I did this once when something felt off, and it invalidated everything I'd already recorded that session because the joint zero-points shifted. Calibrate at the start, don't touch it.
+
+For an SDE used to deterministic systems, the most jarring thing about calibration is that there's no test you can run to confirm it's *correct*. It's correct enough when the follower mirrors the leader and the resulting motion looks reasonable. That's the whole acceptance criterion.
+
+---
+
+## Recording 50 Episodes
+
+The task: pick up a piece of candy from one spot on the desk and drop it into a small box a few inches away.
+
+I'd read that ACT and similar policies want on the order of 50 demonstrations for a simple task. So I sat down to record 50 candy-to-box trajectories by hand, leader-arm in one hand, candy and box on the desk in front of me.
+
+<LocalVideo src="/videos/so101-teleop.mp4" title="Teleoperating the leader arm — follower mirrors in real time" />
+
+Things I learned in the first ten episodes:
+
+- **Teleop fatigue is real.** Each episode is maybe 10–15 seconds of arm motion, plus a few seconds of resetting the scene. Doing 50 in a row is more tiring than it sounds — not physically taxing, but it demands constant attention, and "constant attention for forty minutes" is a different kind of work than writing code.
+- **Variation has to be deliberate.** My instinct was to do every episode the same way — same candy position, same approach angle, same drop point. That's exactly wrong: the policy then has zero diversity to learn from and breaks on anything off-distribution. I forced myself to randomize: shift the candy a centimeter left, rotate the box, approach from a different angle.
+- **My own demonstrations were inconsistent in a way I couldn't see at the time.** When I played back the recordings later, I noticed I had two slightly different grasping styles — one where I came down vertically, one where I came in at a slight angle. I didn't realize I was doing this. The policy presumably noticed.
+- **Failed teleop runs are still data.** Or rather: failed teleop runs should not be in your dataset. I tossed any episode where I fumbled the grasp or knocked over the box. That's obvious in retrospect but it took me a couple of bad recordings to internalize that the policy will learn whatever I show it, including my mistakes.
+
+By the end of 50 episodes I had a dataset, and a much better intuition for why "data quality" gets so much airtime in the imitation learning literature. You feel it in your hands.
+
+---
+
+## What About Just Using Someone Else's Data?
+
+Before sitting down to record 50 episodes by hand, I considered the obvious shortcut: there's pick-and-place data on Hugging Face from other people's SO-101 setups. Why not fine-tune on one of those and skip the teleop?
+
+Two reasons I didn't:
+
+- **Data format alignment is non-trivial.** Different recorders use different camera placements, different action spaces, different gripper conventions, sometimes different LeRobot dataset versions. Wrangling someone else's dataset into a form that matches my exact hardware configuration — wrist cam only, my specific calibration, my action space — would have been its own project, and the resulting hybrid dataset would still be off-distribution from my robot's actual sensor readings.
+- **Transfer learning at this scale doesn't really work.** ACT trained on 50 episodes is already on the thin side; transfer learning typically wants either a large pretrained backbone or a closely matched source task. A small ACT trained on someone else's 50 SO-101 episodes and fine-tuned on mine wouldn't carry meaningful prior — the gains from "starting closer to a good init" don't materially exist in this regime.
+
+So I recorded my own. The right call, but worth naming the road not taken.
+
+---
+
+## Training
+
+I trained an [ACT](https://huggingface.co/docs/lerobot/act) policy on the 50 episodes via LeRobot. ACT — Action Chunking with Transformers — is a small encoder/decoder transformer that predicts short chunks of future actions conditioned on recent observations. It's the default first-thing-to-try for behavioral cloning on bimanual or arm tasks in the LeRobot ecosystem, and the training pipeline is well-trodden.
+
+The training itself was the least dramatic part of this whole project. Configure a YAML, run a command, wait. Loss curves looked normal.
+
+![Wrist-cam frame from the dataset — what the policy was being trained to do](/figures/so101-grasp.jpg)
+
+Model checkpoint is up on Hugging Face: [`nihilityd/act-candy-to-box`](https://huggingface.co/nihilityd/act-candy-to-box).
+
+---
+
+## How Did It Do
+
+Honestly: not well.
+
+The policy moved. The arm did something that looked roughly like reaching toward the candy. But it didn't reliably grasp, and when it did grasp it didn't reliably drop into the box. It was the kind of result where a sympathetic observer would say "I can see what it's *trying* to do," which is a generous way of saying it doesn't work.
+
+I didn't record formal numbers — no held-out success rate, no failure rollout video. I want to be upfront about that. My desk setup has since changed (different lighting, the candy and box aren't where they were, the camera position has shifted), and the policy is brittle enough to that visual context that re-running it now would not be a fair eval of what it could do then. I'll either rebuild the scene or accept this run as a qualitative result and move on.
+
+If I had to guess what went wrong, in order of likely impact:
+
+1. **50 episodes is the floor, not the target.** That's enough for ACT to start working on a clean task, not enough to be robust.
+2. **My demonstrations weren't diverse enough.** Despite trying to randomize, the variation was probably narrower than I thought, especially in approach angle and grasp style.
+3. **Calibration slop.** A few degrees of consistent offset between leader and follower means the policy learned a slightly distorted action space.
+4. **Wrist-cam-only.** No third-person view means the policy has limited spatial context about where the candy is in the world frame versus the gripper.
+
+---
+
+## What I'd Do Differently
+
+- **Record more episodes, and record them across multiple sessions.** Multi-session recording forces variation that single-session recording suppresses — different lighting, different exact desk layout, different teleop mood.
+- **Eyeball less, jig more.** Print or 3D-print a calibration fixture so the reference pose isn't subject to my eye.
+- **Add a third-person camera.** Wrist-cam-only is a meaningful constraint and I should test with it removed.
+- **Decide on the eval protocol before the first training run.** Reserve a fixed scene configuration, decide what counts as success, decide how many trials. I didn't do this and it's why I have no numbers now.
+
+---
+
+## What This Was Worth
+
+For my first attempt at embodied AI, having the policy not really work is fine. The point was to feel the full loop with my own hands — and the texture of the work is different from what reading papers had led me to expect. The ML training run is almost a footnote. The hours go into hardware setup, calibration, recording, and the slow accumulation of intuition about what your demonstrations actually contain.
+
+I'll do another pass on this task with the lessons above, and I'll record the eval properly next time.
+
+Model: [`nihilityd/act-candy-to-box`](https://huggingface.co/nihilityd/act-candy-to-box) on Hugging Face.

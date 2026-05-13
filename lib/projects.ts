@@ -23,11 +23,11 @@ export const projects: Project[] = [
   {
     slug:           'so101-imitation',
     title:          'SO-101 Imitation Learning',
-    description:    'Grasp policy trained on a physical SO-101 arm using LeRobot.',
-    tags:           ['LeRobot', 'Physical arm', 'Grasp task'],
+    description:    'First embodied AI attempt: ACT policy trained on 50 teleoped candy-to-box demos on a physical SO-101 arm.',
+    tags:           ['LeRobot', 'ACT', 'SO-101', 'First attempt'],
     videoYouTubeId: null,
     localVideo:     null,
-    blogSlug:       null,
+    blogSlug:       'so101-imitation',
     github:         null,
   },
 ]
