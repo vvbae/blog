@@ -1,0 +1,203 @@
+# I Tried to Make Robot Policies Generalizable. Here's What Broke.
+
+*May 2026 · viviwei*
+
+---
+
+I'm a software engineer. I've spent years building backend systems, not training neural networks. But I'd been watching the embodied AI space with growing interest, and at some point I decided the only way to actually understand it was to run an experiment myself.
+
+This is the story of that experiment. It produced a negative result — my method didn't beat the baseline. But I learned more from the failure than I would have from a clean win, and I think the failure mode is interesting enough to write up.
+
+The task: peg-in-hole insertion with a robot arm. The hypothesis: we can beat end-to-end imitation learning by decomposing the task. The outcome: we couldn't. Here's exactly why.
+
+*(Success rollout — what a working episode looks like)*
+
+<!-- YouTube embed: success video -->
+
+---
+
+## The Idea
+
+Most robot manipulation policies are trained end-to-end: show the robot a thousand expert demonstrations, train a neural network to map observations to actions, done. This works, but it has a structural problem.
+
+**The policy learns joint angles.** Not manipulation strategies — joint angles. Train on a Franka Panda arm, and the policy knows nothing about a UR5, even if the task is identical. The reason is that the observation space includes the robot's own joint configuration, which is completely different between robot models. You've taught the policy *how this specific robot moves*, not *how to insert a peg*.
+
+This struck me as a strange thing to optimize for. If I were a human learning to insert a peg, I wouldn't be memorizing the angle of my elbow joint — I'd be learning how to react to the peg's position relative to the hole. The robot-specific kinematics would be handled by my motor cortex, invisibly, and I wouldn't need to relearn the task to use a different hand.
+
+So the idea was: what if we decompose the task?
+
+A peg-in-hole task has two natural phases:
+
+```
+Phase 1 — Geometric:   move the arm until the peg is near the hole opening
+Phase 2 — Contact:     align and insert under positional uncertainty
+```
+
+Phase 1 is purely geometric. Given the peg and hole positions, a motion planner can solve it analytically. No learning needed, and the solution is robot-agnostic (the planner handles kinematics).
+
+Phase 2 is where things get hard. Contact physics — friction, compliance, misalignment — can't be modeled cleanly. You need to learn it from data.
+
+The decomposed approach: replace Phase 1 with a motion planner, and only train a learned policy for Phase 2. Critically, make the policy input **robot-agnostic**: instead of joint angles, use the relative position of the tool center point (TCP) to the hole. This representation means the same policy could, in principle, run on any robot arm.
+
+Two claims followed naturally:
+
+1. **Data efficiency**: since the policy only learns Phase 2 (not the full task), it should reach the same success rate with fewer demonstrations.
+2. **Cross-embodiment**: since the input doesn't depend on robot kinematics, a policy trained on a Panda arm should transfer zero-shot to a different arm like the xArm6.
+
+These seemed like reasonable hypotheses. I was wrong about both of them reaching production, but not for the reason I expected.
+
+---
+
+## Building the Experiment
+
+The setup: **PegInsertionSide-v1** in [ManiSkill3](https://github.com/haosulab/ManiSkill), a simulated peg-in-hole task with a Franka Panda robot. For the learned policy I used [Diffusion Policy](https://diffusion-policy.cs.columbia.edu/) via the [LeRobot](https://github.com/huggingface/lerobot) framework.
+
+I collected 996 expert demonstrations using ManiSkill3's built-in motion planner. The contact split was defined as the first frame where contact force exceeded 0.1N. On average, contact onset happened at step ~29 out of ~150 total steps — about 20% of each trajectory. The other 80% was the geometric approach phase, which the motion planner would handle at evaluation time.
+
+**Two mistakes I made early on that are worth calling out:**
+
+*Wrong control mode.* I initially trained with absolute joint position control — the policy outputs target joint angles directly. This is a harder learning problem and produced worse results. Switching to delta control (output = joint angle changes, not absolute values) improved the baseline significantly. For an SDE doing ML for the first time, "which control mode" is not an obvious question.
+
+*No train/test split.* I trained on all 996 demos and evaluated on the same distribution. That's not a meaningful evaluation — you can't tell if you're measuring generalization or memorization. A colleague pointed this out and I fixed it: 800 demos for training, 200 held-out test demos (the last 200 in the dataset, which have different random seeds). All numbers in this post use the held-out test set.
+
+**One more thing that happened: I accidentally made training 196x slower than it needed to be.**
+
+Partway through a training run, I noticed my fan was screaming. I asked Claude to help diagnose it. The first suggestion: DataLoader workers — 4 processes pegged at ~100% CPU each — probably decoding video frames with torchcodec. This sounded plausible. It was completely wrong. The dataset is entirely state-based: 43-dimensional numerical observations stored in parquet files. No images, no video, no torchcodec involved whatsoever.
+
+So we dug deeper. The actual bottleneck was in LeRobot's `__getitem__`. It was calling `hf_dataset.select(indices)[key]` — which reconstructs an Arrow table from scratch on every single call, about 8.5ms per sample. The fix was one line: `hf_dataset[indices][key]`, which does direct indexing and takes ~0.05ms. That's the same result, 170x faster per call.
+
+After that change: GPU utilization went from 0% to 95%, and estimated training time dropped from ~89 hours to ~2.9 hours.
+
+I then looked into submitting a PR to LeRobot. When I checked their latest main branch, the code had already been refactored to avoid `.select()` entirely. So someone else had found it too.
+
+---
+
+## The Numbers
+
+**E2E baseline**: 800 demos, 200k training steps, evaluated on 200 held-out episodes. **65.5% success rate.**
+
+That's the target to beat.
+
+**Contact policy sweep** — same evaluation protocol, varying the number of training demos:
+
+| Demos | Success rate |
+|-------|-------------|
+| 50    | 36.0%       |
+| 100   | 42.5%       |
+| 200   | 40.0%       |
+| 500   | 37.0%       |
+| 796   | 49.5%       |
+
+The best contact policy, trained on 796 demos (the full training set), reached **49.5%** — 16 percentage points below E2E. The data efficiency claim is already in trouble: the contact policy with more data still loses to the E2E baseline.
+
+More puzzling: scaling up training doesn't help. Here's the learning curve for the 796-demo contact policy, evaluated at checkpoints from 1k to 100k steps:
+
+![Learning curve — flat from 1k to 100k steps](../figures/learning_curve.png)
+
+The success rate bounces randomly between 39–56% with no trend. The policy stopped improving almost immediately and never recovered. Training longer is not the answer.
+
+Something more fundamental is wrong.
+
+---
+
+## The Diagnosis
+
+*(Failure rollout — what a failing episode looks like)*
+
+<!-- YouTube embed: failure video -->
+
+The numbers were bad. But "bad" doesn't tell you what to fix. I ran a failure diagnostic: record peg-tip position relative to the hole throughout each episode, separate successes from failures, and plot the trajectories.
+
+Three plots came out:
+
+![Insertion depth over time: successes vs failures](../figures/failure_analysis/insertion_depth.png)
+
+*Left: successful episodes insert the peg steadily. Right: failing episodes never reach the hole entrance at all.*
+
+![Lateral error over time](../figures/failure_analysis/lateral_error.png)
+
+*Failing episodes drift 3–4× the hole radius laterally from the first step. The policy loses orientation immediately.*
+
+![Final peg position scatter (y-z plane)](../figures/failure_analysis/final_lateral.png)
+
+*Where the peg tip ends up at episode end. Successes cluster tightly near the hole center. Failures are scattered everywhere — mean lateral error 54.7mm, hole radius ~15mm.*
+
+**The failure mode is binary.** There are no near-misses. Episodes either succeed completely or fail completely, with the peg ending up nowhere near the hole. The policy isn't "almost working" — it's producing completely wrong actions for a large fraction of inputs.
+
+This is **covariate shift**, and once I saw it I understood why the learning curve was flat.
+
+Here's the chain of causation:
+
+The 996 training demos were all generated by ManiSkill3's scripted motion planner, which follows a fixed, near-optimal approach path to the hole. Every demo therefore reaches contact onset from almost exactly the same direction, at almost exactly the same angle, with almost exactly the same velocity. The **distribution of contact onset states in the training data is narrow**.
+
+At evaluation time, the environment randomizes initial peg and hole positions. Even small variations in the initial configuration lead the motion planner down a slightly different path, arriving at contact onset from a different angle or offset. These contact onset states are **outside the training distribution**.
+
+The policy has never seen these states. It doesn't know how to recover. It outputs garbage.
+
+This is not a model capacity problem. The network isn't too small. It's not undertrained. The training loss was fine. The failure lives entirely in the data distribution: the policy was trained on a narrow set of contact onset states and fails silently when it encounters anything outside that set.
+
+![Sweep comparison: contact policy vs E2E baseline](../figures/sweep_comparison.png)
+
+The E2E policy doesn't have this problem because it learns the full trajectory — including the approach. It develops a richer internal representation of the task state that generalizes better to slight variations in initial conditions.
+
+---
+
+## The Fix That Didn't Work
+
+Covariate shift has a well-known fix: [DAgger](https://proceedings.mlr.press/v15/ross11a.html) (Dataset Aggregation). Roll out the current policy, collect states where it goes wrong, query an expert for correct actions at those states, add them to the training set, repeat. DAgger forces the policy to practice on the distribution it actually encounters at test time.
+
+DAgger requires modifying the evaluation loop to support interactive expert intervention. That's real engineering work. I tried a simpler offline alternative first:
+
+**Data augmentation at contact onset.** For each of the 996 demos, take the contact onset frame, apply a small random displacement to the peg position (±3mm, ±7mm, ±15mm in y and z), then let the scripted motion planner complete the task from that perturbed state. Keep only the successful recoveries. This generates additional "approach from a slightly wrong angle" trajectories without touching the evaluation loop.
+
+This produced **4539 trajectories** from 996 originals. I trained a new contact policy on the augmented dataset for 200k steps and evaluated on the same held-out test set.
+
+Result: **41.0% success rate.** Worse than the unaugmented policy (49.5%).
+
+Why did it get worse?
+
+The scripted motion planner's recovery behavior from perturbed starts is itself stereotyped. When you perturb the contact onset state by 7mm and let the planner finish, it corrects in a formulaic way — not like a human adapting to the perturbation, but like a script branching on a slightly different input. The "augmented" trajectories aren't genuinely diverse; they're offset copies of the same correction pattern.
+
+Feeding 4539 versions of the same stereotyped behavior into the training set didn't add the kind of diversity needed to handle unseen contact onset states. The ceiling was the scripted planner's own behavioral diversity, which turned out to be low.
+
+---
+
+## What I Learned
+
+**Technically:**
+
+Covariate shift in imitation learning is invisible until you run the experiment. Every metric looked fine — training loss converged, the architecture was standard, hyperparameters were reasonable. The failure was entirely in the data distribution, and the only way I found it was by visualizing where the peg ended up in failed episodes.
+
+The "contact segment" from scripted demos is not what I imagined. I expected 29 steps of rich, varied contact behavior — the interesting physics-heavy part of the task. What I got was 29 steps of a near-optimal straight-line correction, always from the same starting configuration. That's not enough signal to train a robust policy on.
+
+A proper train/test split is not optional for comparative experiments, even in imitation learning. "Loss went down" tells you nothing about generalization. I should have set this up before the first training run.
+
+**On research process:**
+
+Run the diagnostic early. I spent time tuning hyperparameters and checking training curves before I ran the failure visualization. The visualization took an hour to write and immediately revealed the root cause. In retrospect, "where does the peg end up in failed episodes" was the first question I should have asked.
+
+Negative results have a natural stopping criterion. When you can explain *why* your method fails and the explanation points to a structural data problem — not a tuning problem — you stop tuning. I stopped after the augmentation experiment failed. Augmentation was the simplest possible fix to covariate shift without DAgger; if that doesn't work, the problem is deeper than what offline augmentation can solve.
+
+**As an outsider:**
+
+The gap between "I understand this conceptually" and "I can run this experiment" is large and humbling. I spent more time debugging LeRobot configs, understanding control modes, and getting ManiSkill3's evaluation loop right than I spent thinking about the actual ML problem. That's probably normal, but it wasn't what I expected going in.
+
+The things that surprised me most weren't the ML parts. They were the experimental hygiene parts: test splits, seed handling, making sure eval and training use the same demo distribution. These are boring, but getting them wrong invalidates your results entirely. I got one wrong and had to redo a training run.
+
+---
+
+## What Would Actually Work
+
+**DAgger** is the principled fix. Roll out the learned policy on the test distribution, collect the states where it fails, get expert actions for those states, add them to training. This directly addresses covariate shift by teaching the policy to recover from the states it actually encounters. It's more engineering work, but it's the right tool.
+
+**Longer contact tasks.** Peg-in-hole's contact segment is ~29 steps, all from a narrow scripted distribution. A task with richer contact dynamics — like [PlugCharger-v1](https://maniskill.readthedocs.io/en/latest/tasks/index.html), which I've started analyzing — would give the policy more varied contact behavior to learn from, even without augmentation.
+
+**Cross-embodiment transfer** is still an interesting open question. The relative-coordinate design — TCP-to-hole position as input rather than joint angles — is sound in principle. But it's only testable once the single-robot version works. That part isn't solved yet.
+
+---
+
+The experiment failed on its primary claim. The contact-only policy didn't beat end-to-end, and offline augmentation made it worse. But the infrastructure is in place, the failure mode is understood, and "the scripted demo contact segment is too stereotyped to train a robust policy on" is a useful thing to know.
+
+If you're trying something similar: run the failure visualization early, set your test split before the first training run, and expect the data distribution problem to be harder than the model problem.
+
+Code and all experiment logs are on [GitHub](https://github.com/viviwei/decomp-learn).
