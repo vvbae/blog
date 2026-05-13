@@ -5,6 +5,7 @@ export interface Project {
   tags:           string[]
   videoYouTubeId: string | null
   localVideo:     string | null
+  coverImage:     string | null
   blogSlug:       string | null
   github:         string | null
 }
@@ -17,6 +18,7 @@ export const projects: Project[] = [
     tags:           ['Diffusion Policy', 'ManiSkill3', 'Negative result'],
     videoYouTubeId: null,
     localVideo:     '/videos/success.mp4',
+    coverImage:     null,
     blogSlug:       'decomposition-learning',
     github:         'https://github.com/vvbae/decomp-learn',
   },
@@ -27,6 +29,7 @@ export const projects: Project[] = [
     tags:           ['LeRobot', 'ACT', 'SO-101', 'First attempt'],
     videoYouTubeId: null,
     localVideo:     null,
+    coverImage:     '/figures/so101-kit.jpg',
     blogSlug:       'so101-imitation',
     github:         null,
   },

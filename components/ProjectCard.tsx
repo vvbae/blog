@@ -14,6 +14,12 @@ export default function ProjectCard({ project }: { project: Project }) {
             playsInline
             className="absolute inset-0 w-full h-full object-cover opacity-80"
           />
+        ) : project.coverImage ? (
+          <img
+            src={project.coverImage}
+            alt={project.title}
+            className="absolute inset-0 w-full h-full object-cover opacity-80"
+          />
         ) : project.videoYouTubeId ? (
           <a
             href={`https://youtube.com/watch?v=${project.videoYouTubeId}`}
