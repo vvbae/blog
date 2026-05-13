@@ -1,0 +1,8 @@
+{
+  "ckpt": "outputs/train/baseline_delta_800/checkpoints/last/pretrained_model",
+  "success_rate": 0.655,
+  "n_success": 131,
+  "n_episodes": 200,
+  "seed_start": 796,
+  "timestamp": "2026-04-28T04:43:57.739812"
+}

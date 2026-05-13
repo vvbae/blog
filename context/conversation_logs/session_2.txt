@@ -1,0 +1,123 @@
+ ▐▛███▜▌   Claude Code v2.1.137
+▝▜█████▛▘  Sonnet 4.6 · Claude Pro
+  ▘▘ ▝▝    ~/viviwei/robot/decomp-learn
+
+✻ Conversation compacted (ctrl+o for history)
+
+
+❯ /compact                                                                      
+  ⎿  Compacted (ctrl+o to see full summary)
+  ⎿  Read .claude/worktrees/analyze-contact/decomp/v1/viz_failures.py (264 lines)
+  ⎿  Read .claude/worktrees/analyze-contact/decomp/v1/commands.sh (112 lines)
+  ⎿  Read .claude/worktrees/analyze-contact/decomp/v1/eval_curve.sh (42 lines)
+  ⎿  Read .claude/worktrees/analyze-contact/decomp/v1/train.py (346 lines)
+  ⎿  Read .claude/worktrees/analyze-contact/decomp/v1/sweep.sh (101 lines)
+
+❯ whats the current status                                                      
+
+● Let me check the current state of the worktree and any results.
+
+  Read 2 files, listed 5 directories (ctrl+o to expand)
+
+● Here's the current status:
+
+  What's done:
+  - All core scripts exist in the worktree (analyze-contact): train.py, eval.py,
+   eval_curve.sh, sweep.sh, viz_failures.py
+  - Learning curve (N=796, checkpoints every 5k): completely flat from 1k–100k
+  steps, bouncing between 39–56%. No clear plateau — it's noisy and saturated
+  from the start.
+  - Sweep results (with early stopping):
+
+  ┌─────────┬────────────┬──────────────┐
+  │ N demos │ Stopped at │ Success rate │
+  ├─────────┼────────────┼──────────────┤
+  │ 50      │ 6k         │ 36.0%        │
+  ├─────────┼────────────┼──────────────┤
+  │ 100     │ 6k         │ 42.5%        │
+  ├─────────┼────────────┼──────────────┤
+  │ 200     │ 8k         │ 40.0%        │
+  ├─────────┼────────────┼──────────────┤
+  │ 500     │ 8k         │ 37.0%        │
+  ├─────────┼────────────┼──────────────┤
+  │ 796     │ 100k (cap) │ 49.5%        │
+  └─────────┴────────────┴──────────────┘
+
+  What's pending:
+  1. Run viz_failures.py — the failure visualization script was just created but
+   not yet run. This is the key diagnostic step. The checkpoint at
+  outputs/train/decomp_v1_delta_curve796/checkpoints/020000/pretrained_model is
+  the recommended target.
+  2. Interpret failure mode — once plots are available: "completely wrong
+  direction" (DAgger needed) vs "right direction but slightly off" (tuning
+  fixable).
+  3. Fix sweep — the sweep used early stopping with a bad val loss proxy, giving
+   non-monotonic results (100 demos > 200 > 500). Needs to be rerun with a fixed
+   step budget (e.g. 20k).
+  4. E2e baseline comparison — baseline hasn't been evaluated on the held-out
+  test set (demos 796–995) yet.
+
+  The immediate next step is running viz_failures.py. Want to do that now?
+
+✻ Cogitated for 30s
+
+※ recap: Building a decomposed contact-insertion policy for PegInsertionSide-v1. The policy hits ~49% success and we need to diagnose why it fails. Next: run viz_failures.py on the 20k checkpoint to see the failure plots. (disable recaps in /config)
+
+❯ ok                                                                            
+
+● Running the failure visualization now.
+
+● Bash(cd
+      /home/viviwei/viviwei/robot/decomp-learn/.claude/worktrees/analyze-contact
+       && uv run decomp/v1/viz_failures.py \
+          --ckpt outputs/train/decomp_v1_delta_cur…)
+  ⎿  /home/viviwei/viviwei/robot/decomp-learn/.claude/worktrees/analyze-con
+     tact/decomp/v1/viz_failures.py:114: DeprecationWarning: __array__ impl
+     ementation doesn't accept a copy keyword, so passing copy=False failed
+     … +60 lines (ctrl+o to expand)
+
+● Results are very clear. Here's the diagnosis:
+
+  Failures are "completely wrong direction" — this is serious covariate shift.
+
+  Key numbers:
+  - x_final mean = -0.110m, x_max mean = -0.101m, peg_len = 0.105m → failures
+  never penetrate the hole at all. The peg ends up at roughly −peg_len, meaning
+  it barely moved from the contact onset position.
+  - lateral mean = 54.7mm, std = 34.8mm, hole radius ≈ 15mm → peg tip is 3–4×
+  the hole radius away laterally. These aren't near-misses.
+
+  Successes vs failures are completely bimodal:
+  - Successes: x_final ≈ −0.01m (well inside), lateral ≈ 2–3mm (perfectly
+  centered)
+  - Failures: x_final ≈ −0.11m (never entered), lateral ≈ 10–124mm (scattered
+  everywhere)
+
+  What this means:
+  The policy either nails it completely or fails completely — no partial
+  progress. The failure episodes are ones where the contact onset state is
+  out-of-distribution for whatever reason (different peg/hole geometry
+  variation, different approach angle), and the policy produces garbage actions.
+   This is a classic covariate shift problem.
+
+  Implications:
+  - Fixing hyperparameters or training longer won't help — the ceiling is real
+  - Options ranked by likelihood to help:
+    a. Don't start from contact onset — the variation in contact onset states is
+   too large; start earlier (pre-contact) to give the policy more context
+    b. DAgger — collect corrective data from failure states
+    c. Task randomization / more demos — if the 796 demos don't cover the
+  geometry variation seen at test time
+
+  Want to check what varies between the succeeding and failing episodes (e.g.
+  peg/hole pose variation at contact onset)?
+
+✻ Cooked for 1m 32s
+
+※ recap: Building a contact-only diffusion policy for peg insertion. Ran failure visualization — failures show complete covariate shift (peg never enters hole, scattered 50mm+ laterally). Next: decide whether to start from pre-contact state instead of contact onset. (disable recaps in /config)
+
+❯ clear                                                                         
+
+  Listed 1 directory (ctrl+o to expand)
+
+✻ Churned for 5s
