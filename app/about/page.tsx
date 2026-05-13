@@ -11,8 +11,7 @@ export default function AboutPage() {
 
       <div className="space-y-8 text-sm leading-relaxed">
         <p className="text-fg">
-          Software engineer turned robotics ML researcher. Years of backend systems
-          work, now focused on embodied AI and robot manipulation.
+          Builder. Writer. Lifetime Learner. Playing with robots and AI currently.
         </p>
 
         <div>

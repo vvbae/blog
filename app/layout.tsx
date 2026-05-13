@@ -4,7 +4,7 @@ import Sidebar from '@/components/Sidebar'
 
 export const metadata: Metadata = {
   title: { default: 'viviwei', template: '%s · viviwei' },
-  description: 'SDE → Robotics ML Engineer. Building embodied AI systems.',
+  description: 'Creating embodied AI from zero.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -8,7 +8,7 @@ export default function HomePage() {
       {/* Hero */}
       <div className="mb-20">
         <p className="text-[10px] uppercase tracking-[0.2em] text-muted font-medium mb-5">
-          SDE → Robotics ML Engineer
+          Creating Embodied AI from Zero
         </p>
         <h1 className="text-[72px] font-black leading-none tracking-[-0.05em] text-fg mb-4">
           Building<br />embodied AI<br />systems.
